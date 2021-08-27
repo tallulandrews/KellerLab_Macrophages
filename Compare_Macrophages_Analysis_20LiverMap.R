@@ -104,7 +104,7 @@ blair <- CreateSeuratObject(blair, project="Blair")
 #Match genes
 blair <- blair[rownames(blair) %in% rownames(obj),]
 obj_merge <- obj[rownames(obj) %in% rownames(blair),]
-blair <- blair_merge[match( rownames(obj_merge), rownames(blair)),]
+blair <- blair[match( rownames(obj_merge), rownames(blair)),]
 
 #Normalize
 orig_norm_factor = 1500
@@ -126,13 +126,13 @@ blair <- Seurat::FindNeighbors(blair, dims=1:20)
 blair <- Seurat::FindClusters(blair)
 DimPlot(blair)
 
-saveRDS("Clustered_Blair.rds")
+saveRDS(blair, "Clustered_Blair.rds")
 
 # Plan 1 -> merge together = Fail! too much background RNA
 
-#merged_obj <- merge(obj_merge[ , obj_merge@meta.data$assay_type == "3pr"], blair_merge, add.cell.ids=c("Map2", "Blair"))
+merged_obj <- merge(obj_merge[ , obj_merge@meta.data$assay_type == "3pr"], blair, add.cell.ids=c("Map2", "Blair"))
 ##Add on
-#merged_obj@meta.data$Coarse_clusters[is.na(merged_obj@meta.data$Coarse_clusters)] <- "Blair"
+merged_obj@meta.data$Coarse_clusters[is.na(merged_obj@meta.data$Coarse_clusters)] <- "Blair"
 #DotPlot(merged_obj, features=unique(Macrophage_genes_dot), group.by="Coarse_clusters")+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 
 #merged_obj <- ScaleData(merged_obj)
@@ -163,7 +163,7 @@ table(blair@meta.data$annotation_HVG[blair@meta.data$annotation_HVG == blair@met
 
 DimPlot(blair, group.by="annotation_Key")
 
-saveRDS("Clustered_Anno_Blair.rds")
+saveRDS(blair, "Clustered_Anno_Blair.rds")
 
 # Plan 3 - Markers of clusters & match across.
 
@@ -199,23 +199,61 @@ FeaturePlot(blair, features="nFeature_RNA")
 # 12
 # 13 = has hepatocyte genes
 
+## ---- Pseudobulk correlations --- ##
+blair <- readRDS("Clustered_Anno_Blair.rds")
 
-pseudobulks_20Livers <- get_pseudobulk_means(obj_merge@assays$RNA@data, obj@meta.data$Subcluster_Manual, obj@meta.data$sample)
+obj <- readRDS("C:/Users/tandrews/Documents/UHNSonya/Map2.2_Empty/Subcluster/Macrophage_harmony_Subcluster.rds")
+cluster_col = "Coarse_clusters"
+manual_cluster_anno <- c(
+		"InfSynap", "NonInf", "NonInf", "Inflam", "RetNonInf", "InflamActiv", 
+		"Inflam", "MHCII", "Activated", "MHCII", "PhagoNonInf", 
+		"Debris", "Inflam", "Doublet", "NonInf")
+
+# Changed 25 May 2021 so that Cluster 2 (third in list) is "NonInf" rather than "Debris", 
+# and Cluster 8 is "Activated" instead of "Repair"
+obj@meta.data$Subcluster_Manual <- manual_cluster_anno[obj@meta.data[,cluster_col]]
+
+
+obj <- obj[rownames(obj) %in% rownames(blair),]
+blair <- blair[rownames(blair) %in% rownames(obj),]
+
+
+
+require(Hmisc)
+
 pseudobulks_blair <- group_rowmeans(blair@assays$RNA@data, blair@meta.data$seurat_clusters)
-profile_20Livers <- group_rowmeans(obj_merge@assays$RNA@scale.data, obj@meta.data$Subcluster_Manual)
+profile_20Livers <- group_rowmeans(obj@assays$RNA@data, obj@meta.data$Subcluster_Manual)
 
-pseudo_sim <- rcorr(pseudobulks_blair, pseudobulks_20Livers)
-profile_sim <- rcorr(pseudobulks_blair[rownames(pseudobulks_blair) %in% Macrophage_genes_dot,], profile_20Livers[rownames(pseudobulks_blair) %in% Macrophage_genes_dot,], type="spearman")
+pseudobulks_blair_detect <- group_rowmeans(blair@assays$RNA@data > 0, blair@meta.data$seurat_clusters)
+profile_20Livers_detect <- group_rowmeans(obj@assays$RNA@counts > 0, obj@meta.data$Subcluster_Manual)
+
+
+profile_20Livers_detect <- profile_20Livers_detect[match(rownames(pseudobulks_blair_detect), rownames(profile_20Livers_detect)),]
+profile_20Livers <- profile_20Livers[match(rownames(pseudobulks_blair), rownames(profile_20Livers)),]
+
+
+profile_sim <- rcorr(pseudobulks_blair[rownames(pseudobulks_blair_detect) %in% Macrophage_genes_dot,], profile_20Livers[rownames(pseudobulks_blair_detect) %in% Macrophage_genes_dot,], type="spearman")
 require(gplots)
-heatmap.2(profile_sim$r[1:14,15:24], trace="none")
+png("Blair_vs_20LiverMap_corr_heatmap.png", width=8, height=8, units="in", res=300)
+heatmap.2(profile_sim$r[1:14,15:24], trace="none", symbreaks=TRUE, col=PurpleAndYellow(20), mar=c(8,4))
+dev.off()
+
+png("Blair_vs_20LiverMap_corr_heatmap_pub.png", width=8, height=8, units="in", res=300)
+
+heatmap.2(profile_sim$r[1:14,c(18,21,22)], trace="none", symbreaks=TRUE, col=PurpleAndYellow(20), mar=c(8,4))
+dev.off()
+
+tmp<- cbind(pseudobulks_blair[rownames(pseudobulk_blair_detect) %in% Macrophage_genes_dot,],  profile_20Livers[rownames(pseudobulks_blair_detect) %in% Macrophage_genes_dot,])
+
 
 ### DE Blair vs LiverMap2.0
 
 
-## Blair vs Devo_map
+## ----- Blair vs Devo_map ----- ##
 
 # source: https://descartes.brotmanbaty.org/bbi/human-gene-expression-during-development/
-
+source("C:/Users/tandrews/Documents/UHNSonya/scripts/LiverMap2.0/My_R_Scripts.R")
+require(Seurat)
 # First lets get the gene expression profiles of all macrophages from the Devo map.
 dir = "C:/Users/tandrews/Documents/UHNSonya/ExternalData/DevelopmentalCellAtlas"
 
@@ -227,6 +265,7 @@ table(devo_meta[grepl("Myeloid", devo_meta[,15]),15])
 objs <- Sys.glob(paste(dir, "/*count.RDS", sep=""))
 genes_meta <- readRDS(paste(dir, "df_gene.RDS", sep="/"))
 
+#objs <- objs[c(1,4,5,6,7,8,10,11,12,13)]
 
 all_profiles <- c();
 organ <- c();
@@ -234,32 +273,54 @@ best_genes <- c();
 # Gather Myeloid data
 for (this_i in 1:length(objs)) {
 
-	this_obj <- readRDS(objs[this_i])
-	this_counts <- this_obj[,colnames(this_obj) %in% devo_meta[grepl("Myeloid", devo_meta[,15]), 1] ]
-	this_name <- unique(devo_meta[ devo_meta[,1] %in% colnames(this_obj) , "Organ"])
+	#if (this_i == 3) {next;}
 
-	# select genes >> myeloid than any other cell type
-	# mean expression across all cell-types
-	this_types <- devo_meta[match( colnames(this_obj), devo_meta[,1] ), 15] 
-	type_profiles <- group_rowmeans(this_obj, this_types)
+	#this_counts <- this_obj[,colnames(this_obj) %in% devo_meta[grepl("Myeloid", devo_meta[,15]), 1] ]
+	#if (ncol(this_counts) == 0) {this_counts <- this_obj[,colnames(this_obj) %in% devo_meta[grepl("Microglia", devo_meta[,15]), 1] ]}
+
+	if (this_i == 3) { 
+
+		type_profiles <- readRDS("Cerebrum_type_profiles_profile.rds")
+		this_name <- "Cerebrum"
+	} else {
+		# select genes >> myeloid than any other cell type
+		# mean expression across all cell-types
+		this_obj <- readRDS(objs[this_i])
+		this_name <- unique(devo_meta[ devo_meta[,1] %in% colnames(this_obj) , "Organ"])		
+		this_types <- devo_meta[match( colnames(this_obj), devo_meta[,1] ), 15] 
+		type_profiles <- group_rowmeans(this_obj, this_types)
+	}	
+
+
+	macro <- which(grepl("Microglia", colnames(type_profiles)) | grepl("Myeloid", colnames(type_profiles)))
+	myeloid_profile <- type_profiles[,macro]
+
+
+	#print(objs[this_i])
+	#print(table(this_types))
+	#print(ncol(this_counts))
 	
-	if (ncol(this_counts) > 0) {
-		profile <- Matrix::rowMeans(this_counts)
-		all_profiles <- cbind(all_profiles, profile)
+	if (length(macro) > 0) {
+		#profile <- Matrix::rowMeans(this_counts)
+		all_profiles <- cbind(all_profiles, myeloid_profile)
 
 		# Store myeloid-specific genes
-		macro <- grep("Myeloid", colnames(type_profiles))
+		#macro <- grep("Myeloid", colnames(type_profiles))
 		macro_genes <- apply(type_profiles, 1, function(x) {x[macro]/max(x[-macro]) > 10 & x[macro] == max(x) & max(x) > 0.05})
 		best_genes <- c(as.character(best_genes), as.character(genes_meta[macro_genes,3]))
 	
-		organ <- c(organ, this_name)
+		organ <- c(organ, rep(this_name, length(macro)))
 	} else {
+		print(this_name)
+		print(colnames(type_profiles))
 		next;
 	}
 }
 
 rownames(all_profiles) <- genes_meta[,3]
 colnames(all_profiles) <- organ
+
+saveRDS(all_profiles, "Blair_full_refAtlas_Myeloid_profiles.rds")
 
 # unique genes
 macrophage_genes <- unique(best_genes)
@@ -270,7 +331,9 @@ key_genes <- all_profiles[rownames(all_profiles) %in% macrophage_genes,]
 key_genes <- key_genes[rowSums(key_genes) > 0,]
 
 require(gplots)
-heatmap.2(key_genes, dendrogram="none", trace="none", scale="row")
+png("Blair_reference_atlas_key_genes_heatmap.png", width=8, height=8, units="in", res=150)
+heatmap.2(key_genes, dendrogram="none", trace="none", scale="row", mar=c(6,4))
+dev.off()
 
 # match blair data
 key_genes_blair <- pseudobulks_blair[match(rownames(key_genes), rownames(pseudobulks_blair)),]
@@ -279,16 +342,22 @@ key_genes <- key_genes[match(rownames(key_genes_blair), rownames(key_genes)),]
 identical(rownames(key_genes_blair), rownames(key_genes))
 # combine
 full_key_genes <- cbind(key_genes, key_genes_blair)
-rownames(full_key_genes) <- rownames(key_genes)
 full_key_genes <- apply(full_key_genes, 2, scale) # This is much better than straight normalization.
+rownames(full_key_genes) <- rownames(key_genes)
 
 # heatmap
 heatmap.2(full_key_genes, dendrogram="none", trace="none", scale="none")
 
+png("Blair_vs_Fetal_profiles_full_heatmap.png", width=8, height=10, units="in", res=150)
+heatmap.2(full_key_genes, dendrogram="none", trace="none", scale="row")
+dev.off()
+
 # correlations
 require(Seurat)
+png("Blair_vs_Fetal_profile_full_correlations.png", width=8, height=8, units="in", res=150)
 heatmap.2( cor(full_key_genes, method="spearman")[ 1:ncol(key_genes), ( ncol(key_genes)+1 ):ncol( full_key_genes )] , 
-		trace="none", mar=c(4,6), col=PurpleAndYellow(25), key.title="", key.xlab="Spearman correlation")
+		trace="none", mar=c(4,6), col=colorRampPalette(c("white", "black"))(20), key.title="", key.xlab="Spearman correlation")
+dev.off()
 
 ### Liver-specific macrophage-markers
 
@@ -299,17 +368,25 @@ rownames(macrophage_gene_table) <- macrophage_genes
 
 for (this_i in 1:length(objs)) {
 
-	this_obj <- readRDS(objs[this_i])
-	this_name <- unique(devo_meta[ devo_meta[,1] %in% colnames(this_obj) , "Organ"])
+	if (this_i == 3) {
+		type_profiles <- readRDS("Cerebrum_type_profiles_profile.rds")
+		this_name <- "Cerebrum"
 
-	# select genes >> myeloid than any other cell type
-	# mean expression across all cell-types
-	this_types <- devo_meta[match( colnames(this_obj), devo_meta[,1] ), 15] 
-	type_profiles <- group_rowmeans(this_obj, this_types)
+	} else {
+
+		this_obj <- readRDS(objs[this_i])
+		this_name <- unique(devo_meta[ devo_meta[,1] %in% colnames(this_obj) , "Organ"])
+
+		# select genes >> myeloid than any other cell type
+		# mean expression across all cell-types
+		this_types <- devo_meta[match( colnames(this_obj), devo_meta[,1] ), 15] 
+		type_profiles <- group_rowmeans(this_obj, this_types)
+	}
+
+	macro <- which(grepl("Microglia", colnames(type_profiles)) | grepl("Myeloid", colnames(type_profiles)))
 	
-	if (length(grep("Myeloid", colnames(type_profiles))) > 0 ) {
+	if (length(macro) > 0 ) {
 		# Store myeloid-specific genes
-		macro <- grep("Myeloid", colnames(type_profiles))
 		macro_genes <- apply(type_profiles, 1, function(x) {x[macro]/max(x[-macro]) > 10 & x[macro] == max(x) & max(x) > 0.05})
 		macro_genes <- as.character(genes_meta[macro_genes,3])
 		macrophage_gene_table[,this_name] <- as.numeric(rownames(macrophage_gene_table) %in% macro_genes);
@@ -325,25 +402,34 @@ liver_mac_gene_expr <- all_profiles[,"Liver"]
 liver_mac_gene_expr <- liver_mac_gene_expr[match(rownames(macrophage_gene_table), names(liver_mac_gene_expr))]
 Adrenal_mac_gene_expr <- all_profiles[,"Adrenal"]
 Adrenal_mac_gene_expr <- Adrenal_mac_gene_expr[match(rownames(macrophage_gene_table), names(Adrenal_mac_gene_expr))]
+Cerebellum_mac_gene_expr <- all_profiles[,"Cerebellum"]
+Cerebellum_mac_gene_expr <- Cerebellum_mac_gene_expr[match(rownames(macrophage_gene_table), names(Cerebellum_mac_gene_expr))]
 
 
-data <- data.frame(macrophage_gene_table, expression_BLAIR=macrophage_gene_expr, expression_Liver=liver_mac_gene_expr, expression_Adrenal=Adrenal_mac_gene_expr)
-write.table(data, "Reference_fetal_tissue-specific.csv", row.names=T, col.names=T, sep=",", quote=TRUE)
+
+data <- data.frame(macrophage_gene_table, expression_BLAIR=macrophage_gene_expr, 
+				expression_Liver=liver_mac_gene_expr, 
+				expression_Cerebellum=Cerebellum_mac_gene_expr,
+				expression_Adrenal=Adrenal_mac_gene_expr)
+write.table(data, "Reference_fetal_tissue-specific_full.csv", row.names=T, col.names=T, sep=",", quote=TRUE)
 
 # Plots with UpSetR
 require(UpSetR)
 
 # Only upto 5 sets it looks like? - subset to most similar based on correlations.
-upset(data)
 
-data <- data[, c("Liver", "Spleen", "Adrenal", "Placenta", "Pancreas", "expression_BLAIR", "expression_Liver", "expression_Adrenal")]
+data <- data[, c("Liver", "Spleen", "Adrenal", "Placenta", "Pancreas", "expression_BLAIR", "expression_Liver", "expression_Adrenal", "expression_Cerebellum")]
+png("Tissue_specific_full_dataset.png", width=10, height=8, units="in", res=300)
 upset( data, 
 	attribute.plots=list(gridrows=100, ncols=1,
 		plots=list(list(plot=scatter_plot, x="expression_Liver", y="expression_BLAIR", queries=T),
 			     list(plot=scatter_plot, x="expression_Adrenal", y="expression_BLAIR", queries=T))
 		), 
 	order.by="freq",
-	queries=list(list(query = intersects, params=list("Liver"), active=T), list(query = intersects, params=list("Adrenal"))) )
+	queries=list(list(query = intersects, params=list("Liver"), active=T), 
+			 list(query = intersects, params=list("Adrenal"))) )
+
+dev.off()
 
 
 tmp <- data[data[,"Liver"] == 1 & rowSums(data[,1:5]) == 1,]
