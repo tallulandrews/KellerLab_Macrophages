@@ -180,9 +180,6 @@ png("Figure_3C_FeaturePlots.png", width=6*2.1, height=2*2.4, units="in", res=300
 FeaturePlot(blair, c("PTPRC", "MARCO", "CD5L", "TIMD4", "CD68", "S100A6", "FCN1", "MNDA"), ncol=4)
 dev.off()
 
-#saveRDS(blair, paste(outname, "Clustered_redo.rds", sep="_"))
-
-
 # Plan 2 -> map cells to nearest neighbours using spearman correlations.
 require(Hmisc)
 # Use Scaled data for reference.
@@ -491,7 +488,7 @@ mousemap <- FindClusters(mousemap, resolution = 0.8)
 mousemap <- RunUMAP(mousemap, dims = 1:15)
 DimPlot(mousemap, reduction = "umap")
 saveRDS(mousemap, "new_mouse_map_obj.rds")
-mousemap <- readRDS("new_mouse_map_obj.rds")
+#mousemap <- readRDS("new_mouse_map_obj.rds")
 
 ##Marker Gene Table##
 Idents(mousemap) <- mousemap@meta.data$seurat_clusters
